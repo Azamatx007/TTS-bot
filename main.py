@@ -6,7 +6,7 @@ from TTS.api import TTS
 from pydub import AudioSegment
 
 # ===== CONFIG =====
-BOT_TOKEN = "8034346294:AAE53a_P73UK_oXP15gnBH1hlXiB5hKUZ74"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # ===== TTS LOAD (1 marta yuklanadi) =====
 print("Model yuklanmoqda...")

@@ -1,12 +1,11 @@
 FROM python:3.10-slim
 
-# Tizim paketlarini o'rnatish
+# Tizim bog'liqliklarini o'rnatish
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
     gcc \
     g++ \
-    make \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

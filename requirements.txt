@@ -5,3 +5,4 @@ aiogram.filters
 aiogram.types
 uuid
 f5_tts
+ffmpeg-python

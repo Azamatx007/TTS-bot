@@ -1,5 +1,4 @@
 asyncio
-os
 aiogram
 aiogram.filters
 aiogram.types

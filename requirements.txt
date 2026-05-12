@@ -1,4 +1,7 @@
-python-telegram-bot==20.7
-TTS
-pydub
-ffmpeg-python
+asyncio
+os
+aiogram
+aiogram.filters
+aiogram.types
+uuid
+f5_tts

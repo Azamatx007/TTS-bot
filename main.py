@@ -1,123 +1,81 @@
+import asyncio
 import os
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.types import FSInputFile
+import uuid
+from f5_tts import F5TTS
 
-from TTS.api import TTS
-from pydub import AudioSegment
+# ================= SOZLAMALAR =================
+TOKEN = "8034346294:AAE53a_P73UK_oXP15gnBH1hlXiB5hKUZ74"
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-# Loglarni sozlash
-logging.basicConfig(level=logging.INFO)
+# F5-TTS ni yuklash
+print("F5-TTS yuklanmoqda... (birinchi marta biroz vaqt oladi)")
+tts = F5TTS()
 
-# ===== CONFIG =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+USER_VOICES = {}
+os.makedirs("voices", exist_ok=True)
+os.makedirs("output", exist_ok=True)
 
-# ===== TTS LOAD =====
-print("AI Model yuklanmoqda...")
-# RAMni tejash uchun gpu=False (Railway uchun mos)
-tts = TTS(model_name="tts_models/multilingual/multi-dataset/your_tts", gpu=False)
-print("Tayyor!")
-
-# ===== USER PAPKA =====
-def get_user_dir(user_id):
-    path = f"users/{user_id}"
-    os.makedirs(path, exist_ok=True)
-    return path
-
-# ===== START KOMANDASI =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = (
-        "👋 **Assalomu alaykum! Men Ovoz Klonlash botiman.**\n\n"
-        "Men sizning ovozingizni o'rganib, siz yozgan matnni o'sha ovozda o'qib bera olaman.\n\n"
-        "**Qanday ishlatiladi?**\n"
-        "1️⃣ Menga ovozli xabar yoki audio fayl yuboring 🎤\n"
-        "2️⃣ Men uni tahlil qilaman.\n"
-        "3️⃣ Keyin matn yuboring va natijani MP3 holatida oling! ✍️"
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    await message.answer(
+        "👋 F5-TTS Voice Clone botga xush kelibsiz!\n\n"
+        "1. Ovoz yuboring (5-15 soniya)\n"
+        "2. Matn yozing\n"
+        "Bot sizning ovozingiz bilan o‘qiydi.\n"
+        "Yengil va sifatli!"
     )
-    await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# ===== AUDIO/VOICE HANDLER =====
-async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_dir = get_user_dir(user_id)
+@dp.message(types.ContentType.VOICE)
+async def handle_voice(message: types.Message):
+    user_id = message.from_user.id
+    file = await bot.get_file(message.voice.file_id)
     
-    # Voice yoki Audio ekanligini aniqlash
-    if update.message.voice:
-        audio_file = await update.message.voice.get_file()
-        ext = "ogg"
-    else:
-        audio_file = await update.message.audio.get_file()
-        ext = update.message.audio.file_name.split('.')[-1]
+    path = f"voices/{user_id}_{uuid.uuid4()}.ogg"
+    await bot.download_file(file.file_path, path)
+    
+    wav_path = path.replace(".ogg", ".wav")
+    os.system(f"ffmpeg -i {path} -ar 22050 -ac 1 {wav_path} -y")
+    
+    USER_VOICES[user_id] = wav_path
+    await message.answer("✅ Ovozingiz qabul qilindi! Endi matn yozing.")
 
-    input_path = os.path.join(user_dir, f"input.{ext}")
-    wav_path = os.path.join(user_dir, "voice.wav")
-
-    await audio_file.download_to_drive(input_path)
-
-    # Har qanday formatni WAV ga o'tkazish (TTS talabi)
-    try:
-        audio = AudioSegment.from_file(input_path)
-        audio.export(wav_path, format="wav")
-        os.remove(input_path) # Keraksiz faylni o'chirish
-        await update.message.reply_text("✅ Ovoz namunasi qabul qilindi! Endi matn yuboring.")
-    except Exception as e:
-        await update.message.reply_text("❌ Audioni qayta ishlashda xatolik yuz berdi.")
-
-# ===== TEXT HANDLER =====
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_dir = get_user_dir(user_id)
-    wav_path = os.path.join(user_dir, "voice.wav")
-    output_mp3 = os.path.join(user_dir, "output.mp3")
-    output_wav = os.path.join(user_dir, "output.wav")
-
-    if not os.path.exists(wav_path):
-        await update.message.reply_text("🎤 Avval ovoz namunangizni yuboring!")
+@dp.message()
+async def handle_text(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in USER_VOICES:
+        await message.answer("❌ Avval ovoz yuboring!")
         return
-
-    text = update.message.text
-    wait_msg = await update.message.reply_text("⏳ AI ishlamoqda, kuting...")
-
+    
+    text = message.text.strip()
+    if len(text) < 5:
+        await message.answer("Matn juda qisqa.")
+        return
+    
+    await message.answer("⏳ Audio yaratilmoqda...")
+    
     try:
-        # TTS orqali WAV yaratish
-        tts.tts_to_file(
+        output_path = f"output/{user_id}_{uuid.uuid4()}.wav"
+        
+        # F5-TTS bilan generatsiya
+        tts.infer(
             text=text,
-            speaker_wav=wav_path,
-            language="en", # 'en' yoki 'tr' o'zbekchaga o'xshashroq chiqadi
-            file_path=output_wav
+            ref_audio=USER_VOICES[user_id],
+            output_path=output_path
         )
-
-        # WAV ni MP3 ga o'tkazish
-        audio = AudioSegment.from_wav(output_wav)
-        audio.export(output_mp3, format="mp3")
-
-        # MP3 yuborish
-        with open(output_mp3, "rb") as f:
-            await update.message.reply_audio(audio=f, filename="voice_cloned.mp3", title="Sizning ovozingiz")
-
-        await wait_msg.delete()
-        # Tozalash
-        if os.path.exists(output_wav): os.remove(output_wav)
-        if os.path.exists(output_mp3): os.remove(output_mp3)
-
+        
+        audio = FSInputFile(output_path)
+        await message.answer_voice(voice=audio)
+        
     except Exception as e:
-        await update.message.reply_text(f"❌ Xatolik: {e}")
+        await message.answer(f"Xatolik: {str(e)}")
 
-# ===== MAIN =====
-def main():
-    if not BOT_TOKEN:
-        print("Xatolik: BOT_TOKEN o'rnatilmagan!")
-        return
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    # Ovozli xabar va audio fayllarni ushlash
-    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    print("Bot polling rejimida ishga tushdi...")
-    app.run_polling()
+async def main():
+    print("✅ Bot ishga tushdi (F5-TTS)")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
